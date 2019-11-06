@@ -1,0 +1,148 @@
+#!/bin/bash
+
+set -x
+
+url="https://server.rsmaxwell.co.uk/archiva/repository"
+
+groupId="com.rsmaxwell.utilities"
+artifactId="utilities-test"
+packaging="jar"
+
+utilities_artifactId="utilities"
+
+#*****************************************************************
+# Clean previous built jars
+#*****************************************************************
+rm -rf ./target/${artifactId}-*
+result=$?
+if [ ! $result == 0 ]; then
+    echo "$0[${LINENO}]"
+    echo "result = $result"
+    exit 1
+fi
+
+#*****************************************************************
+# Find the latest version of 'utilities'
+#*****************************************************************
+currentdir=$(pwd)
+result=$?
+if [ ! $result == 0 ]; then
+    echo "$0[${LINENO}]"
+    echo "result = $result"
+    exit 1
+fi
+
+tempdir=$(mktemp -d -t "latest-XXXXXXXXXXXX")
+result=$?
+if [ ! $result == 0 ]; then
+    echo "$0[${LINENO}]"
+    echo "result = $result"
+    exit 1
+fi
+
+cd ${tempdir}
+result=$?
+if [ ! $result == 0 ]; then
+    echo "$0[${LINENO}]"
+    echo "result = $result"
+    exit 1
+fi
+
+cat << EOT > pom.xml
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+
+	<groupId>junk</groupId>
+	<artifactId>junk</artifactId>
+	<version>junk</version>
+
+	<dependencies>
+		<dependency>
+			<groupId>${groupId}</groupId>
+			<artifactId>${utilities_artifactId}</artifactId>
+			<version>1</version>
+		</dependency>
+	</dependencies>
+
+	<repositories>
+		<repository>
+			<id>internal</id>
+			<url>https://server.rsmaxwell.co.uk/archiva/repository/internal</url>
+			<releases>
+				<updatePolicy>always</updatePolicy>
+			</releases>
+		</repository>
+	</repositories>
+
+</project>
+EOT
+
+mvn versions:use-latest-releases > stdout-version.txt
+result=$?
+if [ ! $result == 0 ]; then
+    echo "$0[${LINENO}]"
+    echo "result = $result"
+    exit 1
+fi
+
+grep "<version>" pom.xml > temp.txt
+result=$?
+if [ ! $result == 0 ]; then
+    echo "$0[${LINENO}]"
+    echo "result = $result"
+    exit 1
+fi
+
+line=$(tail -1 temp.txt)
+regex="<version>(.*)</version>"
+if [[ ${line} =~ ${regex} ]]
+then
+    utilities_version="${BASH_REMATCH[1]}"
+else
+    echo "$0[${LINENO}]"
+    echo "result = $result"
+    exit 1
+fi
+
+cd ${currentdir}
+result=$?
+if [ ! $result == 0 ]; then
+    echo "$0[${LINENO}]"
+    echo "result = $result"
+    exit 1
+fi
+
+rm -rf ${tempdir}
+result=$?
+if [ ! $result == 0 ]; then
+    echo "$0[${LINENO}]"
+    echo "result = $result"
+    exit 1
+fi
+
+#*****************************************************************
+# Replace tags in the source for the Version class
+#*****************************************************************
+TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+    
+find . -name "Version.java" | while read versionfile; do
+
+    echo "Replacing tags in ${versionfile}"
+    
+    sed -i "s@<UTILITIES_TEST_VERSION>@${BUILD_ID}@g"     ${versionfile}
+    sed -i "s@<BUILD_DATE>@${TIMESTAMP}@g"                ${versionfile}
+    sed -i "s@<GIT_COMMIT>@${GIT_COMMIT}@g"               ${versionfile}
+    sed -i "s@<GIT_BRANCH>@${GIT_BRANCH}@g"               ${versionfile}
+    sed -i "s@<GIT_URL>@${GIT_URL}@g"                     ${versionfile}
+    sed -i "s@<UTILITIES_VERSION>@${utilities_version}@g" ${versionfile}
+done
+
+#*****************************************************************
+# Update the version
+#*****************************************************************
+mvn versions:set -DnewVersion=${BUILD_ID}
+mvn versions:use-dep-version -DdepVersion=${utilities_version} -Dincludes=com.rsmaxwell.utilities:utilities
+mvn versions:use-latest-releases
+
